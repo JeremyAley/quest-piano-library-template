@@ -1,0 +1,11 @@
+# Settings for your piano library. Edit this file on GitHub; the next run uses them (every song is processed again).
+
+# The library's name, shown in the app.
+name = "My library"
+
+# Finger numbers (1 thumb to 5 little finger) on every note.
+fingering = true
+
+# Convert MuseScore (.mscz) and MusicXML files with MuseScore Studio's command line. The first run that needs it
+# downloads MuseScore (about 190 MB, then cached), which adds a minute or two.
+musescore = true

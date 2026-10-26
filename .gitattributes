@@ -1,0 +1,9 @@
+# Song files are binary: never touch their line endings.
+*.mid binary
+*.midi binary
+*.kar binary
+*.mxl binary
+*.mscz binary
+*.pdf binary
+*.json text eol=lf
+*.md text eol=lf

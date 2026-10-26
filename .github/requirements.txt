@@ -1,0 +1,3 @@
+# The pipeline the workflow runs (Apache-2.0, https://github.com/JeremyAley/pianopipe). Change the tag to upgrade;
+# every song is processed again with the new version on the next run.
+pianopipe @ git+https://github.com/JeremyAley/pianopipe@v0.1.0
