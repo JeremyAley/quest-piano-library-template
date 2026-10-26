@@ -27,6 +27,8 @@ concurrency:
 
 jobs:
   build:
+    # Not in the template repository itself: its catalog stays empty for the libraries made from it.
+    if: ${{ !github.event.repository.is_template }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
