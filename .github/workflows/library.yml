@@ -30,34 +30,28 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      PIANOPIPE_TAG: v0.1.0
       MUSESCORE_VERSION: "4.7.6"
       MUSESCORE_BUILD: "261022093"
-      # Part of each MusicXML / MuseScore song's build key: a new MuseScore tries those files again.
+      # Part of each MuseScore song's build key: a new MuseScore tries those files again.
       CONVERTER: musescore-4.7.6
+    # Every second counts here: the app gets a dropped song's four levels as soon as this finishes. So no
+    # setup-python and no pip cache (the runner's own Python 3.12 is enough, and pianopipe is one small wheel plus
+    # mido), a plain shallow clone, and MuseScore only for MuseScore files.
     steps:
-      - name: Check out the branch (its latest commit, not the pushed one)
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.ref_name }}
-
-      - name: Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: .github/requirements.txt
-
-      - name: Install pianopipe
-        run: |
-          pip install --disable-pip-version-check -q -r .github/requirements.txt
-          # The grade model isn't inside the package, so fetch it from the same tag.
-          curl -fsSL -o "$RUNNER_TEMP/grade_model.json" \
-            "https://raw.githubusercontent.com/JeremyAley/pianopipe/$PIANOPIPE_TAG/data/grade_model.json" || echo "no grade model: songs get no grades"
-
-      - name: Anything for MuseScore?
+      # One step instead of actions/checkout + setup: no action to start or clean up after. It clones the branch's
+      # latest commit (not the pushed one), so a run that waited in the queue sees every file pushed meanwhile.
+      - name: Check out, install pianopipe
         id: needs
-        run: python scripts/library.py needs-musescore ${{ inputs.retry && '--retry-failed' || '' }} >> "$GITHUB_OUTPUT"
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          TOKEN: ${{ github.token }}
+        run: |
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          git -c http.extraheader="$auth" clone -q --depth 1 -b "$GITHUB_REF_NAME" "$REPO_URL" .
+          git config http.extraheader "$auth"
+          # pianopipe and mido are pure-Python wheels: setup unzips them (pip would take seconds longer to do the same).
+          python3 scripts/library.py setup --site "$RUNNER_TEMP/site" ${{ inputs.retry && '--retry-failed' || '' }} >> "$GITHUB_OUTPUT"
+          echo "PYTHONPATH=$RUNNER_TEMP/site" >> "$GITHUB_ENV"
 
       - name: MuseScore (cached)
         if: steps.needs.outputs.musescore == 'true'
@@ -85,15 +79,13 @@ jobs:
           sudo apt-get install -y -qq --no-install-recommends xvfb libopengl0 libegl1 libxkbcommon0 libxkbcommon-x11-0 \
             libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libnss3 libasound2t64 libpipewire-0.3-0t64 > /dev/null
           # Qt's offscreen platform makes MuseScore quit without writing anything, so it gets a virtual display. And
-          # not setup-python's LD_LIBRARY_PATH, whose libraries MuseScore would load instead of its own.
+          # no LD_LIBRARY_PATH from the environment, whose libraries MuseScore would load instead of its own.
           printf '#!/bin/sh\nunset LD_LIBRARY_PATH\nexec xvfb-run -a "$HOME/musescore/squashfs-root/AppRun" "$@"\n' > ~/mscore
           chmod +x ~/mscore
           echo "MUSESCORE=$HOME/mscore" >> "$GITHUB_ENV"
 
       - name: Build the catalog
-        env:
-          GRADE_MODEL: ${{ runner.temp }}/grade_model.json
-        run: python scripts/library.py build --message-file "$RUNNER_TEMP/message.txt" ${{ inputs.retry && '--retry-failed' || '' }}
+        run: python3 scripts/library.py build --message-file "$RUNNER_TEMP/message.txt" ${{ inputs.retry && '--retry-failed' || '' }}
 
       - name: Commit the catalog
         run: |

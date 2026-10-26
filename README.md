@@ -26,18 +26,21 @@ GitHub and your own devices.
 ## Add songs
 
 - **From the headset:** My library → **Wi-Fi drop**. Open the address it shows on a phone or PC on the same Wi-Fi, enter
-  the 6-digit code and drag files in. They're added to `inbox/` in one commit.
+  the 6-digit code and drag files in. They're added to `inbox/` in one commit, and play on the headset straight away
+  (Full level) while GitHub makes the rest.
 - **On GitHub (phone or PC):** open `inbox/`, then **Add file → Upload files** and **Commit changes**.
 - **With git:** copy files into `inbox/`, commit and push.
 
-A run takes a minute or two (the Actions tab shows it). Then:
+A run takes about 10 seconds, and the song is in the app's library about 20 seconds after you drop it (the Actions
+tab shows each run). Then:
 
 - each file has moved to `library/<song>/` (your file is kept there as `source.<ext>`);
 - `catalog/` has the song's levels and `catalog.json`, which the app reads;
 - **`catalog/report.md`** says what happened to every file: what's ready, what couldn't be read and why, and where
   the hands were guessed.
 
-**What works best:** MusicXML or MuseScore files, whose two staves say which hand plays what. A MIDI file with
+**What works best:** MusicXML (`.musicxml`, `.mxl`) or MuseScore files, whose two staves say which hand plays what.
+MusicXML is read directly; MuseScore files are converted with MuseScore first, which adds about half a minute. A MIDI file with
 separate right- and left-hand tracks is as good. A single-track MIDI works too, but the hands are guessed.
 
 **What doesn't work yet:** PDFs and pictures of sheet music, and recordings (MP3, WAV). Export MusicXML or MIDI from
@@ -49,12 +52,13 @@ the app that made the file, or download that version instead.
 - **Remove a song:** delete its `library/<song>/` folder.
 - **Replace a file:** put a new version with the same file name in `inbox/`.
 - **Settings** (library name, finger numbers, MuseScore): `library.toml`.
-- **A newer pipeline:** change the version tag in `.github/requirements.txt`; every song is processed again.
+- **A newer pipeline:** change pianopipe's version and sha256 in `.github/requirements.txt` (the release page shows
+  both); every song is processed again.
 
 ## Costs
 
-Private repositories get 2,000 free Action minutes a month on GitHub Free. A run takes 1-3 minutes, so hundreds of
-uploads a month fit. Runs only happen when files in `inbox/`, `library/` or `library.toml` change, and only changed
+Private repositories get 2,000 free Action minutes a month on GitHub Free. A run takes well under a minute (GitHub
+counts each as one), so well over a thousand uploads a month fit. Runs only happen when files in `inbox/`, `library/` or `library.toml` change, and only changed
 songs are processed again.
 
 ## Without the headset

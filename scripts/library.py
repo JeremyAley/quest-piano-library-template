@@ -20,8 +20,8 @@ Rules:
     - One bad file never stops the build: it stays in library/<id>/, the report says why, the rest still updates.
       Only a crash in this script turns the run red.
     - Deleting a library/<id>/ folder removes the song from the catalog.
-    - MusicXML and MuseScore files go through the MuseScore command line (mscore -o song.mid) until pianopipe reads
-      MusicXML itself (pianopipe.musicxml); then MusicXML is read directly and MuseScore is only needed for .mscz.
+    - pianopipe reads MIDI and MusicXML / MXL itself (since 0.2.0). MuseScore files (.mscz .mscx) go through the
+      MuseScore command line (mscore -o song.mid); so does MusicXML with an older pianopipe that can't read it.
 
 No song titles are printed outside report.md / report.json and the run summary, which stay in this (private) repo.
 """
@@ -316,13 +316,20 @@ class Library:
             prev = self.lock["songs"].get(d.name, {})
             if src is not None and (self._key(d.name, src) != prev.get("key") or (self.retry_failed and prev.get("status") == "failed")):
                 exts.append(src.suffix.lower())
-        return any(e in MUSESCORE or (e in MUSICXML and not reads_xml) for e in exts)
+        return any(self._converts(e, reads_xml) for e in exts)
+
+    @staticmethod
+    def _converts(ext: str, reads_xml: bool | None = None) -> bool:
+        """Whether files with this extension go through MuseScore."""
+        if reads_xml is None:
+            reads_xml = pianopipe_reads_musicxml()
+        return ext in MUSESCORE or (ext in MUSICXML and not reads_xml)
 
     def _key(self, sid: str, src: Path) -> str:
         # song.json by content, so line endings or spacing (a Windows checkout, an edit on github.com) don't matter.
         meta = json.dumps(self.song_json(sid), sort_keys=True).encode()
-        # A different converter (MuseScore version) is a reason to try MusicXML / MuseScore files again.
-        tool = os.environ.get("CONVERTER", "") if src.suffix.lower() in MUSICXML + MUSESCORE else ""
+        # A different converter (MuseScore version) is a reason to try the files it converts again.
+        tool = os.environ.get("CONVERTER", "") if self._converts(src.suffix.lower()) else ""
         return sha256(src.read_bytes() + b"\0" + meta + b"\0" + f"{pianopipe_version()} {self.settings.key()} {tool}".encode())
 
     def build(self, touched: list[str] | None = None) -> None:
@@ -396,7 +403,7 @@ class Library:
         work = Path(tempfile.mkdtemp(prefix="library-"))
         try:
             midi = src
-            if ext in MUSESCORE or (ext in MUSICXML and not pianopipe_reads_musicxml()):
+            if self._converts(ext):
                 midi, error = self._convert(src, work)
                 if midi is None:
                     item.status, item.reasons = "failed", [error]
@@ -576,7 +583,7 @@ def commit_message(lib: Library) -> str:
 
 
 def load_grade_model(path: str | None):
-    """pianopipe's grade model: the installed package's own (a source checkout), else the file given."""
+    """pianopipe's grade model: the installed package's own (0.2.0 and later ship one), else the file given."""
     try:
         from pianopipe import grading
     except ImportError:
@@ -587,20 +594,75 @@ def load_grade_model(path: str | None):
     return model
 
 
+WHEEL_LINE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*@\s*(https://\S+/[^/\s]+-py3-none-any\.whl)#sha256=([0-9a-f]{64})\s*$")
+
+
+def install_wheels(requirements: Path, site: Path) -> bool:
+    """Unzips requirements.txt's wheels into `site`, which then goes on PYTHONPATH. False if it can't (use pip).
+
+    Every line has to be `name @ https://.../<name>-py3-none-any.whl#sha256=<hash>`: a pure-Python wheel, which pip
+    would only unzip too, so this saves the seconds pip takes to start and to ask the package index. They download
+    at the same time and each one's sha256 is checked.
+    """
+    import concurrent.futures
+    import urllib.request
+
+    wheels = []
+    for line in requirements.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        m = WHEEL_LINE.match(line)
+        if not m:
+            return False
+        wheels.append((m.group(2), m.group(3)))
+
+    def fetch(wheel):
+        url, digest = wheel
+        with urllib.request.urlopen(url, timeout=60) as r:
+            data = r.read()
+        if sha256(data) != digest:
+            raise ValueError(f"{url.rsplit('/', 1)[-1]} isn't the file requirements.txt names (sha256 differs)")
+        return data
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(wheels))) as pool:
+        files = list(pool.map(fetch, wheels))
+    site.mkdir(parents=True, exist_ok=True)
+    for data in files:
+        with zipfile.ZipFile(_bytes_io(data)) as z:
+            z.extractall(site)
+    sys.path.insert(0, str(site))
+    importlib.invalidate_caches()
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build", help="inbox/ -> library/ -> catalog/")
     b.add_argument("--root", default=".")
     b.add_argument("--musescore", default=os.environ.get("MUSESCORE", ""), help="the MuseScore executable (mscore, AppRun)")
-    b.add_argument("--grade-model", default=os.environ.get("GRADE_MODEL", ""), help="pianopipe's data/grade_model.json")
+    b.add_argument("--grade-model", default=os.environ.get("GRADE_MODEL", ""),
+                   help="a grade model file, for a pianopipe that doesn't ship one (0.2.0 and later do)")
     b.add_argument("--message-file", help="write the commit message here")
     b.add_argument("--retry-failed", action="store_true", help="process files that couldn't be read again")
     n = sub.add_parser("needs-musescore", help="print musescore=true|false (for $GITHUB_OUTPUT)")
     n.add_argument("--root", default=".")
     n.add_argument("--retry-failed", action="store_true")
+    s = sub.add_parser("setup", help="install pianopipe into --site, then print musescore=true|false (the workflow's first step)")
+    s.add_argument("--root", default=".")
+    s.add_argument("--site", required=True, help="the folder to install into (put it on PYTHONPATH)")
+    s.add_argument("--retry-failed", action="store_true")
+    s.add_argument("--skip-install", action="store_true", help="pianopipe is installed already")
     args = ap.parse_args(argv)
     root = Path(args.root)
+
+    if args.cmd == "setup":
+        if not args.skip_install and not install_wheels(root / ".github" / "requirements.txt", Path(args.site)):
+            subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-q", "--target", args.site,
+                            "-r", str(root / ".github" / "requirements.txt")], check=True)
+            sys.path.insert(0, args.site)
+            importlib.invalidate_caches()
+        args.cmd = "needs-musescore"
 
     if args.cmd == "needs-musescore":
         lib = Library(root, retry_failed=args.retry_failed)

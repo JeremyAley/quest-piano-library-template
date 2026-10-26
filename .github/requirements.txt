@@ -1,3 +1,7 @@
-# The pipeline the workflow runs (Apache-2.0, https://github.com/JeremyAley/pianopipe). Change the tag to upgrade;
-# every song is processed again with the new version on the next run.
-pianopipe @ git+https://github.com/JeremyAley/pianopipe@v0.1.0
+# What the workflow runs: pianopipe (Apache-2.0, https://github.com/JeremyAley/pianopipe) as its release wheel, and
+# its one dependency. Each line is a pure-Python wheel with its sha256, so the workflow can unzip them without pip
+# (scripts/library.py setup); `pip install -r .github/requirements.txt` works too, on a PC.
+# To upgrade, change the pianopipe version and its sha256 (shown on the release page); every song is processed again.
+pianopipe @ https://github.com/JeremyAley/pianopipe/releases/download/v0.2.0/pianopipe-0.2.0-py3-none-any.whl#sha256=1348382223b7f59857880f8b350dfd3148dea8c4d591ad38da16ae7962add5f9
+mido @ https://files.pythonhosted.org/packages/fd/28/45deb15c11859d2f10702b32e71de9328a9fa494f989626916db39a9617f/mido-1.3.3-py3-none-any.whl#sha256=01033c9b10b049e4436fca2762194ca839b09a4334091dd3c34e7f4ae674fd8a
+packaging @ https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl#sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
