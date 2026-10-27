@@ -9,6 +9,7 @@ on:
       - "inbox/**"
       - "library/**"
       - "library.toml"
+      - ".github/requirements.txt" # a new pianopipe processes every song again
   workflow_dispatch:
     inputs:
       retry:
@@ -34,6 +35,8 @@ jobs:
     env:
       MUSESCORE_VERSION: "4.7.6"
       MUSESCORE_BUILD: "261022093"
+      # The AppImage's sha256, from its GitHub release (assets[].digest). A new version needs a new one.
+      MUSESCORE_SHA256: "5fcbd1f292270eca5c3867d56b767c31a173a155216a415f5caee22553f8e7a6"
       # Part of each MuseScore song's build key: a new MuseScore tries those files again.
       CONVERTER: musescore-4.7.6
     # Every second counts here: the app gets a dropped song's four levels as soon as this finishes. So no
@@ -42,15 +45,19 @@ jobs:
     steps:
       # One step instead of actions/checkout + setup: no action to start or clean up after. It clones the branch's
       # latest commit (not the pushed one), so a run that waited in the queue sees every file pushed meanwhile.
+      # The token is only given to git for the clone (-c, never written to .git/config), so nothing that reads the
+      # dropped files (pianopipe, MuseScore) can find it; the commit step gives it to git again for the push.
       - name: Check out, install pianopipe
         id: needs
         env:
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           TOKEN: ${{ github.token }}
         run: |
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
-          git -c http.extraheader="$auth" clone -q --depth 1 -b "$GITHUB_REF_NAME" "$REPO_URL" .
-          git config http.extraheader "$auth"
+          basic="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$basic"
+          git -c http.extraheader="AUTHORIZATION: basic $basic" clone -q --depth 1 -b "$GITHUB_REF_NAME" "$REPO_URL" .
+          git config --unset-all http.extraheader || true
+          unset TOKEN basic
           # pianopipe and mido are pure-Python wheels: setup unzips them (pip would take seconds longer to do the same).
           python3 scripts/library.py setup --site "$RUNNER_TEMP/site" ${{ inputs.retry && '--retry-failed' || '' }} >> "$GITHUB_OUTPUT"
           echo "PYTHONPATH=$RUNNER_TEMP/site" >> "$GITHUB_ENV"
@@ -69,6 +76,8 @@ jobs:
           mkdir -p ~/musescore && cd ~/musescore
           curl -fsSL -o mscore.AppImage \
             "https://github.com/musescore/MuseScore/releases/download/v$MUSESCORE_VERSION/MuseScore-Studio-$MUSESCORE_VERSION.$MUSESCORE_BUILD-x86_64.AppImage"
+          # Only the release's own file runs: a different download stops here.
+          echo "$MUSESCORE_SHA256  mscore.AppImage" | sha256sum -c --quiet -
           chmod +x mscore.AppImage
           # Runners have no FUSE: unpack the AppImage instead of mounting it.
           ./mscore.AppImage --appimage-extract > /dev/null
@@ -89,16 +98,22 @@ jobs:
       - name: Build the catalog
         run: python3 scripts/library.py build --message-file "$RUNNER_TEMP/message.txt" ${{ inputs.retry && '--retry-failed' || '' }}
 
+      # The token again, for the push only (-c on each command: still never in .git/config).
       - name: Commit the catalog
+        env:
+          TOKEN: ${{ github.token }}
         run: |
+          basic="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$basic"
+          auth="http.extraheader=AUTHORIZATION: basic $basic"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A inbox library catalog
           if git diff --cached --quiet; then echo "Nothing changed."; exit 0; fi
           git commit -q -F "$RUNNER_TEMP/message.txt"
           for attempt in 1 2 3; do
-            git push -q origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            git -c "$auth" push -q origin "HEAD:${GITHUB_REF_NAME}" && exit 0
             # Someone pushed while this ran (their push queued its own run). Put this commit on top and retry.
-            git pull -q --rebase origin "${GITHUB_REF_NAME}" || { git rebase --abort; echo "::warning::A newer push changed the same files; the next run will redo this."; exit 0; }
+            git -c "$auth" pull -q --rebase origin "${GITHUB_REF_NAME}" || { git rebase --abort; echo "::warning::A newer push changed the same files; the next run will redo this."; exit 0; }
           done
           exit 1
