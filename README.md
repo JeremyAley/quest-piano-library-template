@@ -2,8 +2,8 @@
 
 Your own songs for [Quest Piano Trainer](https://github.com/JeremyAley/pianopipe), kept in a repository that only you
 can see. Put MIDI, MusicXML or MuseScore files in `inbox/`; a GitHub Action turns each one into the app's four
-levels (Melody, Melody + bass, Simplified, Full) with finger numbers, and the songs appear in the app's library under
-**My library**.
+levels (Melody, Melody + bass, Simplified, Full) with finger numbers and sheet music, and the songs appear in the app's
+library under **My library**.
 
 ## Keep it private
 
@@ -32,10 +32,10 @@ GitHub and your own devices.
 - **With git:** copy files into `inbox/`, commit and push.
 
 A run takes about 10 seconds, and the song is in the app's library about 20 seconds after you drop it (the Actions
-tab shows each run). Then:
+tab shows each run). Its sheet music (the book on the stand) follows a few minutes later, in the same run. Then:
 
 - each file has moved to `library/<song>/` (your file is kept there as `source.<ext>`);
-- `catalog/` has the song's levels and `catalog.json`, which the app reads;
+- `catalog/` has the song's levels, their sheet music and `catalog.json`, which the app reads;
 - **`catalog/report.md`** says what happened to every file: what's ready, what couldn't be read and why, and where
   the hands were guessed.
 
@@ -51,14 +51,29 @@ the app that made the file, or download that version instead.
 - **Title or composer:** edit `library/<song>/song.json`. The next run updates the catalog.
 - **Remove a song:** delete its `library/<song>/` folder.
 - **Replace a file:** put a new version with the same file name in `inbox/`.
-- **Settings** (library name, finger numbers, MuseScore): `library.toml`.
+- **Settings** (library name, finger numbers, sheet music, MuseScore, songbook melodies): `library.toml`.
+- **A songbook song** (piano with a voice part): add `"melody": true` to its `song.json` and the tune goes into the
+  right hand, so the piano part plays the song on its own.
 - **A newer pipeline:** change pianopipe's version and sha256 in `.github/requirements.txt` (the release page shows
-  both); every song is processed again.
+  both); every song is processed again, and its sheet music engraved again.
+
+## Sheet music
+
+Every level gets its own sheet music, engraved by pianopipe with [Verovio](https://www.verovio.org) (the Full level of a
+MusicXML score shows the score's own notation). It's made after the levels, so a new song plays at once and
+its book appears a few minutes later. Only levels that changed are engraved again.
+
+- A big job (the first run on a library with many songs, or a new pianopipe) engraves for about 12 minutes, saves what
+  it has, and starts the next run for the rest, so a song you drop meanwhile still arrives within minutes.
+- A level that can't be engraved plays without its book; `catalog/report.md` lists it under **Sheet music**. To try
+  again: **Actions → Library → Run workflow**, tick **Try again what couldn't be read or engraved**.
+- The pages take about 0.7 MB a song. `sheets = false` in `library.toml` removes them.
 
 ## Costs
 
-Private repositories get 2,000 free Action minutes a month on GitHub Free. A run takes well under a minute (GitHub
-counts each as one), so well over a thousand uploads a month fit. Runs only happen when files in `inbox/`, `library/` or `library.toml` change, and only changed
+Private repositories get 2,000 free Action minutes a month on GitHub Free. A run takes a minute or two with its sheet
+music (a few minutes for a long piece), so hundreds of uploads a month fit. Engraving a whole library at once (the
+first time, or after a new pianopipe) takes longer: about a minute of runner time per two songs. Runs only happen when files in `inbox/`, `library/` or `library.toml` change, and only changed
 songs are processed again.
 
 ## Without the headset
@@ -69,6 +84,8 @@ To run the same build on a PC (Python 3.12):
 ```
 pip install -r .github/requirements.txt
 python scripts/library.py build
+pip install -r .github/sheet-requirements.txt
+python scripts/library.py sheets
 ```
 
 ## What's in here
@@ -77,12 +94,13 @@ python scripts/library.py build
 inbox/                     drop files here
 library/<song>/            source.<ext> (your file) and song.json (title, composer)
 catalog/catalog.json       the song list the app reads
-catalog/songs/<song>/      level1.mid .. level4.mid
+catalog/songs/<song>/      level1.mid .. level4.mid, and each level's sheet music (level<N>.sheet.json, level<N>-p<page>.png)
 catalog/report.md          what happened to each file (report.json: the same for the app)
 catalog/build.lock         which songs are up to date (don't edit)
 library.toml               settings
 scripts/library.py         the build (uses pianopipe, Apache-2.0)
 .github/workflows/library.yml
+.github/requirements.txt   pianopipe, pinned; .github/sheet-requirements.txt: the engraver, pinned
 ```
 
 The template's own files (scripts, workflow, this README) are under the Apache-2.0 licence, like pianopipe. Your

@@ -1,0 +1,10 @@
+# The engraver for sheet music (pianopipe's engrave.py): Verovio (LGPL-3.0) lays out the notation, resvg (MPL-2.0)
+# draws it, Pillow (MIT-CMU) writes the page images. Native wheels with their libraries inside, for Python 3.12 on
+# the workflow's Linux runner and on a Windows PC; `pip install -r .github/sheet-requirements.txt` works on either.
+# Each is pinned by its sha256 (PyPI shows it). A change here engraves every level again.
+pillow @ https://files.pythonhosted.org/packages/e6/99/fdf65cc539e266ab93546c261bdf98411fe165c6e4e13f9dbf597097192b/pillow-13.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl#sha256=42d63be3af4f9b951b199b0a9d23365d37ab14687e6d77b74940432c8515c4ca ; sys_platform == "linux" and platform_machine == "x86_64"
+pillow @ https://files.pythonhosted.org/packages/ff/cd/73a79ecdc822076002eb24b5e1e4a530b0bb5310fcb6d239abbec877110b/pillow-13.0.0-cp312-cp312-win_amd64.whl#sha256=ff3fe9eb621fbb9db4c4be33ab946f6bac5f98ab50ca8d3260503653656c961b ; sys_platform == "win32"
+resvg_py @ https://files.pythonhosted.org/packages/9e/08/217f2289ceb16a4eafd9c9c6f69aa3221ef047a6abe4ff1ce5c8d6be87d8/resvg_py-0.5.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl#sha256=84f2378ecc7a8e38b03429efaefc816daec1b1970114909a6f973393b297c91b ; sys_platform == "linux" and platform_machine == "x86_64"
+resvg_py @ https://files.pythonhosted.org/packages/fe/53/aa8f92ce6eb2f97095d8b6359a1613c5a5ee0aa9b1a33434df9294362979/resvg_py-0.5.0-cp310-abi3-win_amd64.whl#sha256=1f6b8956c4143dbfe107bcd35799d0dfd778a40a8cd537893c0bf489898a6c3c ; sys_platform == "win32"
+verovio @ https://files.pythonhosted.org/packages/06/5a/88d9750147156dcd353c705097e57d6d23201b08b292ef4f29f20d24a20d/verovio-6.4.0-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl#sha256=6b254295f8542d6c625cd00f788675cf39455ec309ba191a64124cbd16d83db0 ; sys_platform == "linux" and platform_machine == "x86_64"
+verovio @ https://files.pythonhosted.org/packages/e9/a3/fe81ca815c9d84834d155450dc4d70618c7ea78a04bb9d28ecdbbdb5a5f2/verovio-6.4.0-cp310-abi3-win_amd64.whl#sha256=d81bee29b83978a48a065710cb16ebba0914c9c2212305e8c154a6f05d864424 ; sys_platform == "win32"

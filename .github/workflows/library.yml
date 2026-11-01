@@ -10,16 +10,19 @@ on:
       - "library/**"
       - "library.toml"
       - ".github/requirements.txt" # a new pianopipe processes every song again
+      - ".github/sheet-requirements.txt" # a new engraver engraves every level again
   workflow_dispatch:
     inputs:
       retry:
-        description: "Try again the files that couldn't be read"
+        description: "Try again what couldn't be read or engraved"
         type: boolean
         default: false
 
-# Commits made with GITHUB_TOKEN don't start another run, so committing back can't loop.
+# Commits made with GITHUB_TOKEN don't start another run, so committing back can't loop. A long sheet music job
+# starts the next run itself (actions: write, the last step).
 permissions:
   contents: write
+  actions: write
 
 # Runs queue instead of overlapping: each one starts from the branch as the last one left it.
 concurrency:
@@ -31,7 +34,7 @@ jobs:
     # Not in the template repository itself: its catalog stays empty for the libraries made from it.
     if: ${{ !github.event.repository.is_template }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       MUSESCORE_VERSION: "4.7.6"
       MUSESCORE_BUILD: "261022093"
@@ -117,3 +120,46 @@ jobs:
             git -c "$auth" pull -q --rebase origin "${GITHUB_REF_NAME}" || { git rebase --abort; echo "::warning::A newer push changed the same files; the next run will redo this."; exit 0; }
           done
           exit 1
+
+      # Sheet music for the book on the stand, after the levels are pushed: a dropped song plays at once, its book
+      # a few minutes later. Only levels whose file, score, pianopipe or engraver changed are engraved (build.lock).
+      # A big job (the first run, a new pianopipe) stops starting levels after a dozen minutes, pushes what it has and
+      # starts the next run for the rest, so a song dropped meanwhile waits minutes, not an hour.
+      - name: Sheet music needed?
+        id: sheets
+        run: python3 scripts/library.py sheets --check ${{ inputs.retry && '--retry-failed' || '' }} >> "$GITHUB_OUTPUT"
+
+      # Verovio, resvg and Pillow: native wheels pinned by sha256, unzipped next to pianopipe.
+      - name: Install the engraver
+        if: steps.sheets.outputs.needed == 'true'
+        run: python3 scripts/library.py install --site "$RUNNER_TEMP/site" --requirements .github/sheet-requirements.txt
+
+      - name: Engrave the sheet music
+        if: steps.sheets.outputs.needed == 'true'
+        id: engrave
+        run: python3 scripts/library.py sheets --message-file "$RUNNER_TEMP/sheets.txt" ${{ inputs.retry && '--retry-failed' || '' }} >> "$GITHUB_OUTPUT"
+
+      # As the catalog's commit: the token for push and pull only.
+      - name: Commit the sheet music
+        if: steps.sheets.outputs.needed == 'true'
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          basic="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$basic"
+          auth="http.extraheader=AUTHORIZATION: basic $basic"
+          git add -A catalog
+          if git diff --cached --quiet; then echo "Nothing changed."; exit 0; fi
+          git commit -q -F "$RUNNER_TEMP/sheets.txt"
+          for attempt in 1 2 3; do
+            git -c "$auth" push -q origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            git -c "$auth" pull -q --rebase origin "${GITHUB_REF_NAME}" || { git rebase --abort; echo "::warning::A newer push changed the same files; the next run will redo this."; exit 0; }
+          done
+          exit 1
+
+      # Levels left over: the next run engraves them (it queues behind this one, see concurrency above).
+      - name: Start the next run for the rest
+        if: steps.engrave.outputs.more == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run library.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
