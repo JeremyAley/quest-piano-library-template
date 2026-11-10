@@ -146,19 +146,26 @@ def title_from_name(name: str) -> str:
     return (stem[:1].upper() + stem[1:]) if stem else "Untitled"
 
 
-def musicxml_info(data: bytes, ext: str) -> tuple[str, str]:
-    """(title, composer) from a MusicXML or MXL file's header, or ("", "")."""
+def _score_root(data: bytes, ext: str):
+    """A MusicXML or MXL file's root element, or None."""
     try:
         if ext == ".mxl" or data[:2] == b"PK":
             with zipfile.ZipFile(_bytes_io(data)) as z:
                 inner = _mxl_root(z)
                 if inner is None:
-                    return "", ""
+                    return None
                 data = read_capped(z, inner)
         if b"<!ENTITY" in data[:65536]:
-            return "", ""  # entity declarations: not something a score needs, and they can expand without end
-        root = ElementTree.fromstring(data)
+            return None  # entity declarations: not something a score needs, and they can expand without end
+        return ElementTree.fromstring(data)
     except (zipfile.BadZipFile, ElementTree.ParseError, KeyError, ValueError, OSError, RuntimeError, NotImplementedError):
+        return None
+
+
+def musicxml_info(data: bytes, ext: str) -> tuple[str, str]:
+    """(title, composer) from a MusicXML or MXL file's header, or ("", "")."""
+    root = _score_root(data, ext)
+    if root is None:
         return "", ""
     title = (root.findtext("work/work-title") or root.findtext("movement-title") or "").strip()
     composer = ""
@@ -167,6 +174,24 @@ def musicxml_info(data: bytes, ext: str) -> tuple[str, str]:
             composer = c.text.strip()
             break
     return title, composer
+
+
+def musicxml_book(data: bytes, ext: str) -> str:
+    """The songbook a MusicXML file was read from: its <miscellaneous-field name="book"> (tools/sheet_to_library.py
+    writes it), or ""."""
+    root = _score_root(data, ext)
+    if root is None:
+        return ""
+    for f in root.findall("identification/miscellaneous/miscellaneous-field"):
+        if f.get("name") == "book" and (f.text or "").strip():
+            return " ".join(f.text.split())
+    return ""
+
+
+def book_tags(meta: dict) -> list[str]:
+    """song.json's "book" as the catalog's tag ("book:Contemporary Disney"; docs/formats.md), or none."""
+    book = meta.get("book")
+    return [f"book:{' '.join(book.split())}"] if isinstance(book, str) and book.strip() else []
 
 
 def _bytes_io(data: bytes):
@@ -381,6 +406,7 @@ class Library:
             return
         # Read before anything moves, so a file that can't be read is left out whole.
         title, composer = musicxml_info(data, ext) if ext in MUSICXML else ("", "")
+        book = musicxml_book(data, ext) if ext in MUSICXML else ""
         sid = by_name.get(name.lower())
         replacing = sid is not None
         if sid is None:
@@ -400,6 +426,8 @@ class Library:
         if composer and not meta.get("composer"):
             meta["composer"] = composer
         meta.setdefault("composer", "")
+        if book:  # the songbook it was scanned from (tools/sheet_to_library.py); songs.json there changes it
+            meta["book"] = book
         meta["original_name"] = name
         meta["format"] = format_of(ext)
         meta["source_sha256"] = digest
@@ -438,7 +466,8 @@ class Library:
 
     def _key(self, sid: str, src: Path) -> str:
         # song.json by content, so line endings or spacing (a Windows checkout, an edit on github.com) don't matter.
-        meta = json.dumps(self.song_json(sid), sort_keys=True).encode()
+        # Its "book" only labels the catalog entry (_build_one sets it on a reused song), so it isn't processed again.
+        meta = json.dumps({k: v for k, v in self.song_json(sid).items() if k != "book"}, sort_keys=True).encode()
         # A different converter (MuseScore version) is a reason to try the files it converts again.
         tool = os.environ.get("CONVERTER", "") if self._converts(src.suffix.lower()) else ""
         return sha256(src.read_bytes() + b"\0" + meta + b"\0" + f"{pianopipe_version()} {self.settings.key()} {tool}".encode())
@@ -491,7 +520,9 @@ class Library:
             item.status, item.reasons, item.warnings = prev.get("status", "ok"), prev.get("reasons", []), prev.get("warnings", [])
             item.hand_source, item.levels = prev.get("hand_source", ""), prev.get("levels", 0)
             if item.status == "ok":
-                entries[sid] = old_entries[sid]
+                entry = old_entries[sid]
+                entry.tags = [t for t in entry.tags if not t.startswith("book:")] + book_tags(meta)
+                entries[sid] = entry
         else:
             item.change = "updated" if sid in old_entries or prev else "added"
             shutil.rmtree(songs_out / sid, ignore_errors=True)
@@ -549,7 +580,7 @@ class Library:
                     return None
             fields = {k: meta[k] for k in ("title", "full_title", "composer", "era", "character") if meta.get(k)}
             fields["id"] = sid
-            fields["tags"] = [t for t in meta.get("tags", []) if isinstance(t, str)]
+            fields["tags"] = [t for t in meta.get("tags", []) if isinstance(t, str) and not t.startswith("book:")] + book_tags(meta)
             # A song's voice or melody part merged into the right hand: song.json's "melody" (true, false, or the
             # parts' names), else library.toml's. A MIDI file has no parts to merge; pianopipe ignores it there.
             melody = meta.get("melody", self.settings.melody)

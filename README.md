@@ -49,6 +49,10 @@ the app that made the file, or download that version instead.
 ## Change things
 
 - **Title or composer:** edit `library/<song>/song.json`. The next run updates the catalog.
+- **A songbook's name** (the app's My songs → Books): `"book": "Contemporary Disney"` in its `song.json`. Songs
+  scanned from a book have it already. Changing it doesn't process the song again.
+- **A songbook's cover:** a JPEG or PNG named after the book in `books/` (`books/Contemporary Disney.jpg`; up to 4 MB,
+  about 700 pixels wide is plenty). The app picks it up on its next sync, no run needed; without one it draws a cover.
 - **Remove a song:** delete its `library/<song>/` folder.
 - **Replace a file:** put a new version with the same file name in `inbox/`.
 - **Settings** (library name, finger numbers, sheet music, MuseScore, songbook melodies): `library.toml`.
@@ -93,6 +97,7 @@ python scripts/library.py sheets
 ```
 inbox/                     drop files here
 library/<song>/            source.<ext> (your file) and song.json (title, composer)
+books/                     songbook covers: <book name>.jpg or .png
 catalog/catalog.json       the song list the app reads
 catalog/songs/<song>/      level1.mid .. level4.mid, and each level's sheet music (level<N>.sheet.json, level<N>-p<page>.png)
 catalog/report.md          what happened to each file (report.json: the same for the app)
